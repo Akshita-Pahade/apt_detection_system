@@ -90,10 +90,47 @@ static SessionEvent dictToSessionEvent(const py::dict& d) {
         ev.minute = d["minute"].cast<int>();
     else
         ev.minute = std::stoi(d["minute"].cast<std::string>());
+    // Optional extended fields
+    if (d.contains("location"))
+        ev.location = d["location"].cast<std::string>();
+    if (d.contains("sourceIP"))
+        ev.sourceIP = d["sourceIP"].cast<std::string>();
+    if (d.contains("lastFailedIP"))
+        ev.lastFailedIP = d["lastFailedIP"].cast<std::string>();
+    if (d.contains("failedAttempts")) {
+        if (py::isinstance<py::int_>(d["failedAttempts"]))
+            ev.failedAttempts = d["failedAttempts"].cast<int>();
+        else
+            ev.failedAttempts = std::stoi(d["failedAttempts"].cast<std::string>());
+    }
+    if (d.contains("recordsAccessed")) {
+        if (py::isinstance<py::int_>(d["recordsAccessed"]))
+            ev.recordsAccessed = d["recordsAccessed"].cast<int>();
+        else
+            ev.recordsAccessed = std::stoi(d["recordsAccessed"].cast<std::string>());
+    }
     // Clamp to valid range
     ev.hour   = std::max(0, std::min(23, ev.hour));
     ev.minute = std::max(0, std::min(59, ev.minute));
     return ev;
+}
+
+// Python dict  →  SessionOptions
+static SessionOptions optionsFromDict(const py::dict& d) {
+    SessionOptions opts;
+    if (d.contains("last_active_date"))
+        opts.lastActiveDateOverride = d["last_active_date"].cast<std::string>();
+    if (d.contains("resignation_date"))
+        opts.resignationDateOverride = d["resignation_date"].cast<std::string>();
+    if (d.contains("normal_device_count"))
+        opts.normalDeviceCountOverride = d["normal_device_count"].cast<int>();
+    if (d.contains("failed_attempts"))
+        opts.failedAttempts = d["failed_attempts"].cast<int>();
+    if (d.contains("last_failed_ip"))
+        opts.lastFailedIP = d["last_failed_ip"].cast<std::string>();
+    if (d.contains("source_ip"))
+        opts.sourceIP = d["source_ip"].cast<std::string>();
+    return opts;
 }
 
 // Python list of dicts  →  vector<SessionEvent>
@@ -169,7 +206,8 @@ public:
 
     // ── analyzeSession ───────────────────────────────────────────────────────
     std::string analyzeSession(const std::string& user,
-                               const py::list&    events)
+                               const py::list&    events,
+                               const py::dict&    session_options = py::dict())
     {
         try {
             std::string uuser = toUpper(user);
@@ -182,8 +220,10 @@ public:
                 return "[ERROR] No events provided. "
                        "Pass at least one event dictionary.";
 
+            SessionOptions opts = optionsFromDict(session_options);
+
             OutputCapture cap;
-            engine_.analyseSession(uuser, evVec);
+            engine_.analyseSession(uuser, evVec, opts);
             return cap.get();
         }
         catch (const std::exception& e) {
@@ -209,6 +249,10 @@ public:
                 for (const auto& dev : it->second)
                     devList.append(dev);
             d["permitted_devices"] = devList;
+            d["last_active_date"]  = perms_.getLastActiveDate(username);
+            d["resignation_date"]  = perms_.getResignationDate(username);
+            d["avg_daily_records"] = perms_.getAvgDailyRecords(username);
+            d["normal_device_count"] = perms_.getNormalDeviceCount(username);
             result.append(d);
         }
         return result;
@@ -503,10 +547,17 @@ PYBIND11_MODULE(apt_engine, m) {
         .def("analyzeSession",
              &APTEngineWrapper::analyzeSession,
              py::arg("username"), py::arg("events"),
+             py::arg("session_options") = py::dict(),
              "Analyse a user session.\n\n"
              "events: list of dicts, each with keys:\n"
              "  'device' (str), 'date' (YYYY-MM-DD str),\n"
-             "  'hour' (int 0-23), 'minute' (int 0-59)\n\n"
+             "  'hour' (int 0-23), 'minute' (int 0-59),\n"
+             "  optional: 'location', 'sourceIP', 'lastFailedIP',\n"
+             "  'failedAttempts', 'recordsAccessed'\n\n"
+             "session_options: optional dict with keys:\n"
+             "  'last_active_date', 'resignation_date',\n"
+             "  'normal_device_count', 'failed_attempts',\n"
+             "  'last_failed_ip', 'source_ip'\n\n"
              "Returns the full formatted analysis output as a string.")
 
         .def("analyzeMultipleSessions",
@@ -578,4 +629,16 @@ PYBIND11_MODULE(apt_engine, m) {
              py::arg("date_yyyymmdd"),
              "Return True if the given YYYY-MM-DD date falls on a weekend.")
         ;
+
+    py::class_<SessionEvent>(m, "SessionEvent")
+        .def(py::init<>())
+        .def_readwrite("device",         &SessionEvent::device)
+        .def_readwrite("date",           &SessionEvent::date)
+        .def_readwrite("hour",           &SessionEvent::hour)
+        .def_readwrite("minute",         &SessionEvent::minute)
+        .def_readwrite("location",       &SessionEvent::location)
+        .def_readwrite("sourceIP",       &SessionEvent::sourceIP)
+        .def_readwrite("lastFailedIP",   &SessionEvent::lastFailedIP)
+        .def_readwrite("failedAttempts", &SessionEvent::failedAttempts)
+        .def_readwrite("recordsAccessed",&SessionEvent::recordsAccessed);
 }
