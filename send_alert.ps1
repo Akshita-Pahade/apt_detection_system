@@ -4,8 +4,8 @@ param(
     [string]$Body
 )
 
-$From       = "prekshak014@gmail.com"
-$Pass       = "fhlgqvuvtuqxttpq"
+$From       = "YOUR_EMAIL@gmail.com"
+$Pass       = "YOUR_GMAIL_APP_PASSWORD"
 $SmtpServer = "smtp.gmail.com"        
 $Port       = 587
 
